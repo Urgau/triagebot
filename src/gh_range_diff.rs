@@ -17,6 +17,7 @@ use hyper::{
 use imara_diff::{
     Algorithm, Diff, InternedInput, Interner, Token, UnifiedDiffConfig, UnifiedDiffPrinter,
 };
+use itertools::Itertools;
 use pulldown_cmark_escape::FmtWriter;
 use regex::Regex;
 use unicode_segmentation::UnicodeSegmentation;
@@ -526,13 +527,9 @@ impl UnifiedDiffPrinter for HtmlDiffPrinter<'_> {
         after: &[Token],
     ) -> fmt::Result {
         // To improve on the line-by-line diff we also want to do a sort of `git --words-diff`
-        // (aka word highlighting). To achieve word highlighting, we only consider hunk that
-        // have the same number of lines removed and added, otherwise it's much more complex
-        // to link the changes together.
+        // (aka word highlighting).
 
         if before.len() == after.len() {
-            // Same number of lines before and after, can do word-hightling.
-
             // Diff the individual lines together.
             let diffs_and_inputs: Vec<_> = before
                 .into_iter()
@@ -572,6 +569,58 @@ impl UnifiedDiffPrinter for HtmlDiffPrinter<'_> {
                     }),
                 )?;
             }
+        } else if before.len() > 0
+            && after.len() > 0
+            && (before.len() as isize - after.len() as isize).abs() <= 5
+        {
+            // Diff all the lines together.
+
+            // Collect all the before and after lines
+            let before_lines: String = before.iter().map(|b_token| self.0[*b_token]).collect();
+            let after_lines: String = after.iter().map(|a_token| self.0[*a_token]).collect();
+
+            // Split lines by words and intern them.
+            let input: InternedInput<&str> = InternedInput::new(
+                SplitWordBoundaries(&before_lines),
+                SplitWordBoundaries(&after_lines),
+            );
+
+            // Compute the (word) diff
+            let diff = Diff::compute(Algorithm::Histogram, &input);
+
+            // Process all before lines first
+            let mut it_before = input.before.iter().enumerate().peekable();
+            while it_before.peek().is_some() {
+                // Create a iterator to get all the words until End-Of-Line or End-Of-Iterator
+                let line = it_before
+                    .by_ref()
+                    .map(|(pos, token)| (pos, input.interner[*token]))
+                    .take_while_inclusive(|(_pos, word)| !word.ends_with('\n'))
+                    .map(|(pos, word)| (word, diff.is_removed(pos as u32)));
+
+                self.handle_hunk_line(&mut f, HunkTokenStatus::Removed, line)?;
+            }
+
+            if !before_lines.ends_with('\n') {
+                writeln!(f)?;
+            }
+
+            // Then process all after lines
+            let mut it_after = input.after.iter().enumerate().peekable();
+            while it_after.peek().is_some() {
+                // Create a iterator to get all the words until End-Of-Line or End-Of-Iterator
+                let line = it_after
+                    .by_ref()
+                    .map(|(pos, token)| (pos, input.interner[*token]))
+                    .take_while_inclusive(|(_pos, word)| !word.ends_with('\n'))
+                    .map(|(pos, word)| (word, diff.is_added(pos as u32)));
+
+                self.handle_hunk_line(&mut f, HunkTokenStatus::Added, line)?;
+            }
+
+            if !after_lines.ends_with('\n') {
+                writeln!(f)?;
+            }
         } else {
             // Can't do word-highlighting, simply print each line.
 
@@ -603,6 +652,7 @@ impl UnifiedDiffPrinter for HtmlDiffPrinter<'_> {
                 }
             }
         }
+
         Ok(())
     }
 }
