@@ -1,0 +1,4 @@
+# Use `git config blame.ignorerevsfile .git-blame-ignore-revs` to make `git blame` ignore the following commits.
+
+# Split `github.rs` file into multiple smaller sub-modules
+00127fd78e4571fbdb7b5b5d41b73ebf3bf4e895
