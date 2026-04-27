@@ -186,9 +186,11 @@ impl GithubClient {
         repo: &IssueRepository,
         job_id: u128,
     ) -> anyhow::Result<String> {
+        const MAX_LOG_SIZE_IN_MB: usize = 50 * 1024 * 1024; // 50 Mib
+
         let url = format!("{}/actions/jobs/{job_id}/logs", repo.url(self));
         let (body, _req_dbg) = self
-            .send_req(self.get(&url))
+            .send_req_with_limit(self.get(&url), MAX_LOG_SIZE_IN_MB)
             .await
             .context("failed to retrieve job logs")?;
         Ok(String::from_utf8_lossy(&body).to_string())
