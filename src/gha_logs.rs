@@ -143,6 +143,19 @@ pub async fn gha_logs(
 
         let logs = match logs {
             Ok(logs) => logs,
+            Err(err)
+                if err
+                    .downcast_ref::<http_body_util::LengthLimitError>()
+                    .is_some() =>
+            {
+                // Return a friendly error message for no logs too big.
+                tracing::info!("gha_logs: raw logs too big (over 50 mib) for {log_uuid}");
+                return Ok((
+                    StatusCode::BAD_REQUEST,
+                    HeaderMap::new(),
+                    "The requested logs are too large (over 50 Mib).\n\nTry download the raw logs from GitHub instead.".to_string(),
+                ));
+            }
             Err(err) if matches!(err.downcast_ref::<reqwest::Error>(), Some(err) if err.status() == Some(StatusCode::GONE)) =>
             {
                 // Return a friendly error message for no longer available logs.

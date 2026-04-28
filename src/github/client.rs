@@ -1,7 +1,10 @@
 use anyhow::Context;
 use async_trait::async_trait;
 use futures::{FutureExt, future::BoxFuture};
+use http_body_util::BodyExt;
+use http_body_util::Limited;
 use itertools::Itertools;
+use reqwest::Body;
 use reqwest::header::{AUTHORIZATION, USER_AGENT};
 use reqwest::{Client, Request, RequestBuilder, Response, StatusCode};
 use secrecy::{ExposeSecret, SecretString};
@@ -98,12 +101,28 @@ impl GithubClient {
     }
 
     pub async fn send_req(&self, req: RequestBuilder) -> anyhow::Result<(Bytes, String)> {
+        const MAX_DEFAULT_RESPONSE_SIZE: usize = 1 * 1024 * 1024; // 1 Mib
+
+        self.send_req_with_limit(req, MAX_DEFAULT_RESPONSE_SIZE)
+            .await
+    }
+
+    pub async fn send_req_with_limit(
+        &self,
+        req: RequestBuilder,
+        max_response_size: usize,
+    ) -> anyhow::Result<(Bytes, String)> {
         const MAX_ATTEMPTS: u32 = 2;
+
         log::debug!("send_req with {:?}", req);
+
         let req_dbg = format!("{req:?}");
+
         let req = req
             .build()
             .with_context(|| format!("building reqwest {req_dbg}"))?;
+
+        let req_url = req.url().to_string();
 
         let mut resp = self.client.execute(req.try_clone().unwrap()).await?;
         if self.retry_rate_limit
@@ -111,23 +130,50 @@ impl GithubClient {
         {
             resp = self.retry(req, sleep, MAX_ATTEMPTS).await?;
         }
+
         let maybe_err = resp.error_for_status_ref().err();
         let github_request_id = resp.headers().get("x-github-request-id").cloned();
-        let body = resp
-            .bytes()
-            .await
-            .with_context(|| format!("failed to read response body {req_dbg}"))?;
+
+        let resp: http::Response<Body> = resp.into();
+        let limited = Limited::new(resp, max_response_size);
+
+        let body = match limited.collect().await {
+            Ok(body) => body.to_bytes(),
+            Err(e) => match e.downcast::<http_body_util::LengthLimitError>() {
+                Ok(e) => {
+                    return Err(anyhow::Error::new(*e)).with_context(|| {
+                            format!(
+                                "req={req_url} (x-github-request-id: {}): lenght exceeded (over {max_response_size} bytes)",
+                                github_request_id
+                                    .as_ref()
+                                    .and_then(|v| v.to_str().ok())
+                                    .unwrap_or("unknown")
+                            )
+                        });
+                }
+                Err(e) => {
+                    return Err(anyhow::Error::from_boxed(e)).with_context(|| {
+                            format!(
+                                "req={req_url} (x-github-request-id: {}): unable to complete the request",
+                                github_request_id
+                                    .as_ref()
+                                    .and_then(|v| v.to_str().ok())
+                                    .unwrap_or("unknown")
+                            )
+                        });
+                }
+            },
+        };
+
         if let Some(e) = maybe_err {
             return Err(anyhow::Error::new(e)).with_context(|| {
                 format!(
-                    "response (x-github-request-id: {}): {}",
-                    String::from_utf8_lossy(
-                        github_request_id
-                            .as_ref()
-                            .map(|id| id.as_bytes())
-                            .unwrap_or_default()
-                    ),
-                    String::from_utf8_lossy(&body)
+                    "req={req_url} (x-github-request-id: {}): {:.500}",
+                    github_request_id
+                        .as_ref()
+                        .and_then(|v| v.to_str().ok())
+                        .unwrap_or("unknown"),
+                    String::from_utf8_lossy(&body),
                 )
             });
         }
