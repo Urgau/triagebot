@@ -64,7 +64,7 @@ pub async fn gh_range_diff(
         // Fortunatly GitHub compare API returns the the merge base commit when comparing
         // two different sha.
         //
-        // Unformtunatly for us we don't know in which tree the parent is (could be master, beta, stable, ...)
+        // Unfortunately for us we don't know in which tree the parent is (could be master, beta, stable, ...)
         // so for now we assume that the parent is in the default branch (that we hardcore for now to "master").
         //
         // We therefore compare those the master and oldhead to get a guess of the oldbase.
