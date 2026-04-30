@@ -143,7 +143,7 @@ impl GithubClient {
                 Ok(e) => {
                     return Err(anyhow::Error::new(*e)).with_context(|| {
                             format!(
-                                "req={req_url} (x-github-request-id: {}): lenght exceeded (over {max_response_size} bytes)",
+                                "req={req_url} (x-github-request-id: {}): max response size exceeded (over {max_response_size} bytes)",
                                 github_request_id
                                     .as_ref()
                                     .and_then(|v| v.to_str().ok())
@@ -333,11 +333,21 @@ impl GithubClient {
         query: &str,
         vars: serde_json::Value,
     ) -> anyhow::Result<serde_json::Value> {
-        self.json(self.post(&self.graphql_url).json(&serde_json::json!({
-            "query": query,
-            "variables": vars,
-        })))
-        .await
+        // Our GraphQl query can end-up being quite big, let's set a higher default
+        // response size than for normal REST Api response.
+        const MAX_DEFAULT_GRAPH_QL_RESPONSE_SIZE: usize = 6 * 1024 * 1024;
+
+        let (body, _dbg) = self
+            .send_req_with_limit(
+                self.post(&self.graphql_url).json(&serde_json::json!({
+                    "query": query,
+                    "variables": vars,
+                })),
+                MAX_DEFAULT_GRAPH_QL_RESPONSE_SIZE,
+            )
+            .await?;
+
+        Ok(serde_json::from_slice(&body)?)
     }
 
     /// Issues an ad-hoc GraphQL query.
