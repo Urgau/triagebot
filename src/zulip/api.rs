@@ -93,6 +93,17 @@ impl Recipient<'_> {
     }
 }
 
+#[derive(serde::Deserialize)]
+pub struct ZulipChannel {
+    pub stream: ZulipChannelData,
+}
+
+#[derive(serde::Deserialize)]
+pub struct ZulipChannelData {
+    pub name: String,
+    pub stream_id: u64,
+}
+
 #[cfg(test)]
 fn check_encode(topic: &str, expected: &str) {
     const PREFIX: &str = "stream/0-xxx/topic/";

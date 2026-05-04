@@ -43,19 +43,21 @@ use tracing::log;
 fn get_text_backport_approved(
     channel: &BackportChannelArgs,
     verb: &BackportVerbArgs,
+    team_name: &str,
     zulip_link: &str,
 ) -> String {
     format!(
-        "{channel} backport {verb} as per compiler team [on Zulip]({zulip_link}). A backport PR will be authored by the release team at the end of the current development cycle. Backport labels are handled by them."
+        "{channel} backport {verb} as per {team_name} team [on Zulip]({zulip_link}). A backport PR will be authored by the release team at the end of the current development cycle. Backport labels are handled by them."
     )
 }
 
 fn get_text_backport_declined(
     channel: &BackportChannelArgs,
     verb: &BackportVerbArgs,
+    team_name: &str,
     zulip_link: &str,
 ) -> String {
-    format!("{channel} backport {verb} as per compiler team [on Zulip]({zulip_link}).")
+    format!("{channel} backport {verb} as per {team_name} team [on Zulip]({zulip_link}).")
 }
 
 #[derive(Debug, serde::Deserialize)]
@@ -407,6 +409,14 @@ async fn accept_decline_backport(
     let stream_id = message.stream_id.unwrap();
     let subject = message.subject.unwrap();
     let zulip_client = &ctx.zulip;
+    let zulip_stream = zulip_client.get_zulip_channel_by_id(stream_id).await?;
+    // expected something like `t-{team_name}/foo` or `t-{team_name}`
+    let team_name = &zulip_stream
+        .name
+        .rsplit_once('/')
+        .map_or(&*zulip_stream.name, |s| s.0)
+        .strip_prefix("t-")
+        .unwrap_or_default();
 
     // Repository owner and name are hardcoded
     // This command is only used in this repository
@@ -443,11 +453,11 @@ async fn accept_decline_backport(
         | BackportVerbArgs::Accepted
         | BackportVerbArgs::Approve
         | BackportVerbArgs::Approved => (
-            get_text_backport_approved(&args.channel, &args.verb, &zulip_link),
+            get_text_backport_approved(&args.channel, &args.verb, team_name, &zulip_link),
             true,
         ),
         BackportVerbArgs::Decline | BackportVerbArgs::Declined => (
-            get_text_backport_declined(&args.channel, &args.verb, &zulip_link),
+            get_text_backport_declined(&args.channel, &args.verb, team_name, &zulip_link),
             false,
         ),
     };
