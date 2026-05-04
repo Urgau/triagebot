@@ -245,6 +245,13 @@ fn process_old_new(
     .diff-content {{
       overflow-x: auto;
     }}
+    .diff-content > .filename-line:first-child {{
+      display: none;
+    }}
+    .filename-block {{
+      background-color: #89a1cd;  
+      color: black;
+    }}
     .removed-block {{
       background-color: rgba(255, 150, 150, 1);
       white-space: pre;
@@ -297,6 +304,9 @@ fn process_old_new(
       }}
       a {{
         color: #41a6ff;
+      }}
+      .filename-block {{
+        background-color: #5f8fe5;
       }}
       .removed-block {{
         background-color: rgba(80, 45, 45, 1);
@@ -383,7 +393,7 @@ fn process_old_new(
                 false
             };
 
-            let printer = HtmlDiffPrinter(&input.interner);
+            let printer = HtmlDiffPrinter(&input.interner, filename);
             let diff = diff.unified_diff(&printer, config.clone(), &input);
 
             let before_href =
@@ -482,7 +492,7 @@ enum HunkTokenStatus {
     Removed,
 }
 
-struct HtmlDiffPrinter<'a>(pub &'a Interner<&'a str>);
+struct HtmlDiffPrinter<'a>(pub &'a Interner<&'a str>, pub &'a str);
 
 impl HtmlDiffPrinter<'_> {
     #[expect(clippy::unused_self, reason = "might use it later")]
@@ -543,13 +553,19 @@ impl HtmlDiffPrinter<'_> {
 impl UnifiedDiffPrinter for HtmlDiffPrinter<'_> {
     fn display_header(
         &self,
-        _f: impl fmt::Write,
+        mut f: impl fmt::Write,
         _start_before: u32,
         _start_after: u32,
         _len_before: u32,
         _len_after: u32,
     ) -> fmt::Result {
-        // ignore the header as does not represent anything meaningful for the range-diff
+        const NEW_LINE: &str = "\n";
+
+        write!(
+            f,
+            r#"<span class="filename-line"> <span class="filename-block">@@</span> <b>{}</b>{NEW_LINE}</span>"#,
+            self.1
+        )?;
         Ok(())
     }
 
