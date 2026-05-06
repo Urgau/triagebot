@@ -2,7 +2,9 @@
 //! Documentation: https://zulip.com/api/send-message
 
 use crate::zulip::Recipient;
-use crate::zulip::api::{MessageApiResponse, ZulipUser, ZulipUsers};
+use crate::zulip::api::{
+    MessageApiResponse, ZulipChannel, ZulipChannelData, ZulipUser, ZulipUsers,
+};
 use anyhow::Context;
 use reqwest::{Client, Method, RequestBuilder, Response};
 use secrecy::{ExposeSecret, SecretString};
@@ -168,6 +170,21 @@ impl ZulipClient {
         }
 
         Ok(())
+    }
+
+    /// Retrieve a stream (channel) from its ID
+    /// https://zulip.com/api/get-stream-by-id
+    pub async fn get_zulip_channel_by_id(
+        &self,
+        stream_id: u64,
+    ) -> anyhow::Result<ZulipChannelData> {
+        let resp = self
+            .make_request(Method::GET, &format!("streams/{stream_id}"))
+            .send()
+            .await?;
+        deserialize_response::<ZulipChannel>(resp)
+            .await
+            .map(|channel| channel.stream)
     }
 
     fn make_request(&self, method: Method, url: &str) -> RequestBuilder {
